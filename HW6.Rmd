@@ -27,7 +27,7 @@ head(Esteem)
 summary(Esteem)
 sapply(Esteem, sd)
 Esteem$LIncome2005 <- log(Esteem$Income2005)
-REsteem <- Esteem[,c("Esteem1", "LIncome2005", "AFQT", "Gender")]
+REsteem <- Esteem[,c("Esteem1", "LIncome2005", "AFQT", "Gender", "Educ")]
 REsteem$Esteem1[REsteem$Esteem1 == "3"] <- 0
 REsteem$Esteem1[REsteem$Esteem1 == "2"] <- 0
 REsteem$Esteem1[REsteem$Esteem1 == "1"] <- 0
@@ -51,12 +51,12 @@ train(Esteem1~., data=training, method='pls')
 ## Logistic Regression on the data
 
 ```{r}
-myLogit <- glm(Esteem1 ~ LIncome2005 + AFQT + Gender, data=REsteem)
+myLogit <- glm(Esteem1 ~ LIncome2005 + AFQT + Gender + Educ, data=REsteem)
 myLogit
 summary(myLogit)
 ```
 
-There is strong evidence at the alpha = 0.05 level of significance (p-value = 0.0181) that the AFQT variable is a strong indicator for a persons self esteem.
+None of the variables are statistically significant at the alpha = 0.05 level of significance.
 
 ## Classification Tree for the data
 
