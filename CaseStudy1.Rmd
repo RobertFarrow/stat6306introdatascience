@@ -1,0 +1,16 @@
+---
+title: "CaseStudy1"
+author: "RobertFarrow"
+date: "October 15, 2015"
+output: html_document
+---
+
+setwd("C:/Users/Robert/Desktop/STAT6306_McGee/Homework/10.1_CaseStudy1")
+
+'''{r}
+source("RCode.R")
+'''
+
+'''{r}
+source("QOI.R")
+'''
