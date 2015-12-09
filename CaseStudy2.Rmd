@@ -1,0 +1,18 @@
+---
+title: "CaseStudy2"
+author: "RobertFarrow"
+date: "November 10, 2015"
+output: html_document
+---
+
+# Set Working Directory
+'''{r}
+setwd("C:/Users/Robert/Desktop/STAT6306_McGee/Homework/11.9_CaseStudy2")
+'''
+
+# Code for the data analysis and conclusions
+'''{r}
+source("CaseStudy2.R")
+source("Conclusion.R")
+source("Visualization.png")
+'''
