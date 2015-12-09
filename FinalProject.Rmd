@@ -1,0 +1,490 @@
+---
+title: "CIA Factbook Mashup"
+author: "Robert Farrow, John Weng, Zhu Mei, Haichen Liu, Huanzhe Wang"
+date: "December 9, 2015"
+output: html_document
+---
+
+## Load packages needed for this project
+
+```{r}
+library(XML)
+library(RColorBrewer)
+library(maps)
+# R looks for a binary version of the package, which is not available. Instead we have to use the source code for installing this package
+install.packages("RKML", repos = "http://www.omegahat.org/R", type = "source") 
+library(RKML)
+library(RCurl)
+library(plyr)
+library(sp)
+library(maptools)
+library(rgdal)
+```
+
+## Google Earth will need to be downloaded to view the final product
+# http://www.google.com/earth/download/ge/agree.html
+
+# Download the CIA Factbook
+# http://jmatchparser.sourceforge.net/factbook/data/factbook.xml.gz
+
+```{r}
+factbookDOC = xmlParse("C:/Users/Robert/Desktop/STAT6306_McGee/Project/factbook.xml")
+factbookRoot = xmlRoot(factbookDOC)
+```
+
+# Inspect the Factbook
+
+```{r}
+xmlName(factbookRoot)
+xmlSize(factbookRoot)
+```
+
+## Create the popDF and infMortDF Dataframes
+# We made several educated guesses to get to the data in the Tree Node
+
+```{r}
+table(names(factbookRoot))
+sapply(factbookRoot["category"], function(node) table(names(node)))
+sapply(factbookRoot["category"], xmlAttrs)
+categoryNodes = factbookRoot["category"]
+w = sapply(categoryNodes, xmlGetAttr, "name")=="People and Society"
+Ids = sapply(categoryNodes[[ which(w) ]] [ "field" ], xmlGetAttr, "id")
+f2091Index = which(Ids == "f2091")
+f2091Index
+```
+
+# Create the infMortDF Dataframe
+
+```{r}
+rankNodes = categoryNodes[[ which(w) ]][ "field" ][[ f2091Index ]]["rank"]
+xmlSize(rankNodes) # CIA Factbook direction has 223, we have 224
+infMortNum = sapply(rankNodes, xmlGetAttr, "number")
+infMortCtry = sapply(rankNodes, xmlGetAttr, "country")
+head(infMortNum)
+head(infMortCtry)
+field2091 = getNodeSet(factbookDOC, "//field[@id='f2091']") # CIA Factbook directions has "factbookDoc", should be "factbookDOC"
+xmlAttrs(field2091[[1]])
+rankNodes = getNodeSet(factbookDOC, "//field[@id='f2091']/rank")
+xmlAttrs(rankNodes[[1]])
+infNum = as.numeric(sapply(rankNodes, xmlGetAttr, "number"))
+infCtry = sapply(rankNodes, xmlGetAttr, "country")
+infMortDF = data.frame(infMort = infNum, ctry = infCtry, stringsAsFactors = FALSE)
+```
+
+# Create the popDF Dataframe
+
+```{r}
+rankNodes = getNodeSet(factbookRoot, "//field[@id='f2119']/rank")
+popNum = as.numeric(sapply(rankNodes, xmlGetAttr, "number"))
+popCtry = sapply(rankNodes, xmlGetAttr, "country")
+popDF = data.frame(pop = popNum, ctry = popCtry, stringsAsFactors = FALSE)
+```
+
+## Get the Lattitude and Longitude data frame
+# Website to download the data
+# http://dev.maxmind.com/static/csv/codes/country_latlon.csv
+
+```{r}
+latlonDF <- read.csv("C:/Users/Robert/Desktop/STAT6306_McGee/Project/country_latlon.csv", sep=",")
+```
+
+## Get the ISO 3166 codes
+# https://github.com/obikag/iso-3166-country-codes
+
+```{r}
+ISOCodes <- read.csv("C:/Users/Robert/Desktop/STAT6306_McGee/Project/iso&cia_country_codes.csv", sep=",")
+```
+
+## Combine the latlonDF, popDF, and infMortDF data frames
+
+```{r}
+head(latlonDF)
+head(popDF)
+head(infMortDF)
+nrow(latlonDF)
+IMPop = merge(infMortDF, popDF, by="ctry", all=FALSE)
+dim(IMPop)
+latlonDF$code=tolower(as.character(latlonDF$iso.3166.country))
+latlonDFMerge=merge(latlonDF, ISOCodes, by="iso.3166.country", all=FALSE)
+latlonDFMerge$ctry=tolower(as.character(latlonDFMerge$ctry))
+allCtryData=merge(IMPop, latlonDFMerge, by.x="ctry", all=FALSE)
+```
+
+## Countries that did not contain values for either Population or Infant Moratality Rate
+
+```{r}
+IMPop1 = merge(infMortDF, popDF, by="ctry", all=TRUE)
+is.na(IMPop1)
+IMPop1[16,] #Ctry code is ax, Akrotiri
+IMPop1[38,] #Ctry code is cc
+IMPop1[46,] #Ctry code is ck, Cocos (Keeling) Islands
+IMPop1[61,] #Ctry code is dx, Dhekelia
+IMPop1[74,] #Ctry code is fk, Falkland Islands (Islas Malvinas)
+IMPop1[117,] #Ctry code is kt, Christmas Island
+IMPop1[119,] #Ctry code is kv, Kosovo
+IMPop1[137,] #Ctry code is mj, Montenegro
+IMPop1[151,] #Ctry code is ne, Niue
+IMPop1[152,] #Ctry code is nf, Norfolk Island
+IMPop1[165,] #Ctry code is pc, Pitcairn Islands
+IMPop1[177,] #Ctry code is rn, Saint Martin
+IMPop1[199,] #Ctry code is sv, Svalbard
+IMPop1[203,] #Ctry code is tb, Saint Barthelemy
+IMPop1[208,] #Ctry code is tl, Tokelau
+IMPop1[231,] #Ctry code is vt, Holy See (Vatican City)
+```
+
+## Set the color palette and create the breaks to use for Infant Mortality Rate
+
+```{r}
+display.brewer.all()
+# view the color palette
+cols = brewer.pal(9, "YlOrRd")[c(1,2,4,6,7)]
+newInfMort = cut(allCtryData$infMort, breaks = 5)
+summary(newInfMort)
+newInfMort2 = cut(allCtryData$infMort, breaks = c(0, 37, 50, 65, 80, 150))
+summary(newInfMort2)
+hist(allCtryData$infMort, breaks=20, main="", xlab="Infant Mortality per 1000 Live Births")
+quantile(allCtryData$infMort, probs=seq(0, 1, by=.2))
+InfMortDiscrete = cut(allCtryData$infMort, breaks=c(0, 10, 25, 50, 75, 150))
+```
+
+## Create popDiscrete
+
+```{r}
+quantile(allCtryData$pop, probs=seq(0, 1, by=.2))
+popDiscrete = cut(allCtryData$pop, breaks=c(0, 320041, 3588317, 10127792, 29387171, 1355692577))
+```
+
+## Create the Map
+
+```{r}
+world = map(database="world", fill=TRUE, col="light grey")
+symbols(allCtryData$longitude, allCtryData$latitude, add=TRUE, circles=sqrt(allCtryData$pop)/4000, inches=FALSE, fg=cols[InfMortDiscrete], bg=cols[InfMortDiscrete])
+legend(x=-150, y=0, title="Infant Mortality", legend=levels(InfMortDiscrete), fill=cols, cex=.8)
+```
+
+## Check the range of the population and set the minimum radius
+
+```{r}
+range(allCtryData$pop)
+hist(sqrt(allCtryData$pop), breaks=20, xlab="Square-root of Population", main="")
+rads=pmax(sqrt(allCtryData$pop)/4000, 1)
+```
+
+## Plotting with Google Earth, the code in the text does not work
+
+```{r}
+doc=kmlPoints(allCtryData)
+## The saveXML code crashes R, DO NOT USE!! Code provided by the text
+# saveXML(doc, file = "C:/Users/Robert/Desktop/STAT6306_McGee/Project/FinalProject/countryData1.kml")
+```
+
+## Our solution to the code in the text
+## Create a Dataframe
+
+```{r}
+coordinates(allCtryData) <- ~latitude+longitude
+proj4string(allCtryData) <- CRS("+proj=longlat +datum=WGS84")
+```
+
+## Create a Matrix of the coordinates
+
+```{r}
+rown<-nrow(coordinates(allCtryData))
+coln<-ncol(coordinates(allCtryData))
+Temp <- matrix(nrow=rown,ncol = 1)
+id=1
+for (i in 1:rown){
+ Temp[i,1] <- id
+  id<-id+1 
+}
+Temp
+```
+
+## Create the KML Document
+
+```{r}
+allCtryData.kml <- newXMLNode("kml")
+h2 <- newXMLNode("Document", parent = allCtryData.kml)
+h3 <- newXMLNode("name", "allCtryData", parent = h2)
+h4 <- newXMLNode("LookAt", parent=h2)
+h5 <- newXMLNode("longitude", parent=h4)
+h6 <- newXMLNode("latitude", parent=h4)
+h7 <- newXMLNode("altitude", parent=h4)
+h8 <- newXMLNode("tilt", parent=h4)
+h9 <- newXMLNode("heading", parent=h4)
+h10 <- newXMLNode("altitudeMode", parent=h4)
+h11 <- newXMLNode("Folder", "allCtryData", parent=allCtryData.kml[["Document"]])
+txtc <- sprintf("<Placemark id='%.0f'><name>%s</name><Point><coordinates>%.5f,%.5f,%.0f</coordinates></Point></Placemark>",
+			Temp[,1],allCtryData[[6]],coordinates(allCtryData)[,1], coordinates(allCtryData)[,2], rep(0, length(allCtryData)))
+parseXMLAndAdd(txtc, parent = h4)
+saveXML(allCtryData.kml, file="C:/Users/Robert/Desktop/STAT6306_McGee/Project/FinalProject/allCtryData.kml")
+```
+# The KML Document does not have the information we are looking for, so we try other methods to generate the correct KML Document
+
+## View the KML Document
+
+```{r}
+allCtryData.kml
+```
+
+## Save the KML Document as an XML Document so that we can review it
+
+```{r}
+saveXML(allCtryData.kml, file="C:/Users/Robert/Desktop/STAT6306_McGee/Project/FinalProject/allCtryData.xml")
+```
+
+## Add Placemarks to the KML Doc
+
+```{r}
+addPlacemark =  function(lat, lon, id, label, parent){
+  newXMLNode("Placemark",
+ 	     newXMLNode("name", label),
+	     newXMLNode("Point",
+                       newXMLNode("coordinates",
+				paste(lon, lat, 0, sep = ","))),
+	     attrs = c(id = id), parent = parent)
+}
+```
+
+## Create Population Scales for the visualization in KML
+
+```{r}
+popScales = as.character(1+ c(0.25, 0.75, 1.5, 3, 7))
+icon = rep (sprintf("yor%dball.png",
+		seq(along = levels( InfMortDiscrete))),
+		each = length(levels(InfMortDiscrete)))
+scale = rep(popScales, length(levels(popDiscrete)))
+```
+
+## Create the Circular Points for display in KML and apply to allCtryData
+
+```{r}
+ballStyles = mapply(function(scale, icon)
+		list(IconStyle =
+		list(scale = scale,
+		Icon = c(href = icon))),
+		scale, icon, SIMPLIFY=TRUE)
+g = expand.grid(seq(along = levels(InfMortDiscrete)),
+	seq(along = levels(popDiscrete)))
+names(ballStyles) = sprintf("ball_%d-%d", g[,2], g[,1])
+ctryStyle = sprintf("#ball_%d-%d", InfMortDiscrete, popDiscrete)
+kmlPoints(allCtryData, docStyles = ballStyles, style = ctryStyle)
+```
+
+## Create Point Descriptions, the information that displays when you click on a country in Google Earth
+
+```{r}
+ptDescriptions =
+ sprintf(paste(
+"<table><tr><td>Country:</td><td>%s</td></tr>",
+"<tr><td>Infant Mortality:</td>",
+"<td>%s per 1,000 live births</td></tr>",
+"<tr><td>Population:</td><td>%s</td></tr></table>"),
+	allCtryData$name, allCtryData$infMort, allCtryData$pop)
+```
+
+## Create the final KML Document
+
+```{r}
+docName = "Infant Mortality"
+docDescription = "2014 CIA Factbook"
+folderName = "Countries"
+doc = kmlPoints(allCtryData, docName = docName,
+	docDescription = docDescription,
+	docStyles = ballStyles,
+	folderName = folderName,
+	style = ctryStyle,
+	description = ptDescriptions,
+	ids = allCtryData$ctry,
+	.names = allCtryData$name)
+```
+
+# kmlPoints does not work, so the code in the text will not allow us to create the document and the following code in the text does not work either
+
+## Create the Legend for the Document and save
+
+```{r}
+kmlLegend(x = 20, y = 20, title = "Infant Mortality",
+	legend = levels(InfMortDiscrete), fill = cols,
+	text.col= "white", dims = c(100, 108),
+	parent = doc)
+saveXML(doc, file = "C:/Users/Robert/Desktop/STAT6306_McGee/Project/FinalProject/ctryFancy.kml")
+```
+
+## Create KML Document that should display all of the information for Google Earth
+
+```{r}
+makeBaseDocument = 
+  function(docName = "Infant mortality",
+	   docDesc = "2014 CIA Factbook",
+	   lat = 43, lon = -121, alt = 4100000,
+	   tilt = 0, heading = 0)
+{
+ doc = newXMLDoc()
+ rootNode = newXMLNode("kml", doc = doc)
+ DocNode = newXMLNode("Document", parent = rootNode)
+ newXMLNode("name", docName , parent = DocNode)
+ newXMLNode("description", docDesc, parent = DocNode)
+ LANode = newXMLNode("LookAt", parent = DocNode)
+ newXMLNode("longitude", lon, parent = LANode)
+ newXMLNode("latitude", lat, parent = LANode)
+ newXMLNode("tilt", tilt, parent = LANode)
+ newXMLNode("heading", heading, parent = LANode)
+ newXMLNode("altitudeMode", "absolute", parent = LANode)
+ newXMLNode("Folder", parent = DocNode)
+ return(doc)
+}
+baseDoc = makeBaseDocument()
+baseDoc
+```
+
+## Add Placemarks to the XML Document and save
+
+```{r}
+addPlacemark =  function(lat, lon, id, label, parent, style = NULL, desc = NULL){
+  newXMLNode("Placemark",
+ 	     newXMLNode("name", label),
+	     newXMLNode("Point",
+                       newXMLNode("coordinates",
+				paste(lon, lat, 0, sep = ","))),
+	     attrs = c(id = id), parent = parent)
+}
+root = xmlRoot(baseDoc)
+folder = root[["Document"]][["Folder"]]
+mapply(addPlacemark,
+       lat = allCtryData$latitude, lon = allCtryData$longitude,
+       id = allCtryData$ctry, label = allCtryData$name,
+       parent = folder, style = ctryStyle, desc = ptDescriptions)
+makeStyleNode = function(styleInfo, id){
+  st = newXMLNode("Style", attrs = c("id" = id))
+  newXMLNode("IconStyle", 
+            newXMLNode("scale", styleInfo$IconStyle$scale),
+            newXMLNode("icon", styleInfo$IconStyle$Icon),
+		parent = st)
+  return(st)
+}
+styleNodes = mapply(makeStyleNode, ballStyles, names(ballStyles))
+addChildren(root[["Document"]], kids = styleNodes, at = 3)
+saveXML(baseDoc, file = "C:/Users/Robert/Desktop/STAT6306_McGee/Project/FinalProject/countryMashup.kml")
+```
+
+## countryMashup.kml does not produce the desired output in Google Earth either, so we keep trying other methods to get the desired output
+
+## Save the Placemarks as a vectorized string
+
+```{r}
+kmlTxt = sprintf("<Placemark><Point><coordinates>%.3f,%.3f,0
+		</coordinates></Point></Placemark>",
+		allCtryData$longitude, allCtryData$latitude)
+```
+
+## Create the XML Document using a different method, should solve the errors we are encountering with the method in the text
+
+## Create KML Document
+
+```{r}
+LAST<- newXMLNode("kml")
+h2 <- newXMLNode("Document", parent = LAST)
+h3 <- newXMLNode("name", "allCtryData", parent = h2)
+h4 <- newXMLNode("LookAt", parent=h2)
+txtc <- sprintf("<Placemark id='%.0f'><name>%s</name>  <styleUrl>%s</styleUrl>       <Point><coordinates>%.5f,%.5f,%.0f</coordinates></Point></Placemark>",
+                Temp[,1],allCtryData[[6]],ctryStyle,coordinates(allCtryData)[,1], coordinates(allCtryData)[,2], rep(0, length(allCtryData)))
+parseXMLAndAdd(txtc, parent = h4)
+```
+
+## Save the KML Document as an XML Document
+
+```{r}
+saveXML(LAST, file="C:/Users/Robert/Desktop/STAT6306_McGee/Project/FinalProject/countryData2.kml")
+```
+
+## Turn the Pushpin Styles into a list
+
+```{r}
+b <-rep(1:5, each=5)
+a <- rep(seq(1, 5, 1), 5)
+a <- b <- as.factor(a)
+ctryStyle1 = sprintf("ball_%d-%d", InfMortDiscrete, popDiscrete)
+balls= sprintf("ball_%d-%d", a, b)
+icon = rep (sprintf("yor%dball.png",
+                    seq(along = levels( InfMortDiscrete))),
+            each = length(levels(InfMortDiscrete)))
+```
+
+## Create a KML Document that will have the Pushpin styles
+
+```{r}
+SS<- newXMLNode("kml")
+h2 <- newXMLNode("Document", parent = SS)
+h3 <- newXMLNode("name", "allCtryData", parent = h2)
+h4 <- newXMLNode("LookAt", parent=h2)
+txtc1 <- sprintf("<Style id='%s'> <IconStyle> <scale>%s  </scale>  <Icon>%s </Icon> </IconStyle></Style> ",
+                 balls,scale,icon)
+txtc <- sprintf("<Placemark id='%.0f'><name>%s</name>  <styleUrl>%s</styleUrl>       <Point><coordinates>%.5f,%.5f,%.0f</coordinates></Point></Placemark>",
+                Temp[,1],allCtryData[[6]],ctryStyle,coordinates(allCtryData)[,1], coordinates(allCtryData)[,2], rep(0, length(allCtryData)))
+parseXMLAndAdd(txtc, parent = h4)
+parseXMLAndAdd(txtc1, parent = h2)
+saveXML(SS, file="C:/Users/Robert/Desktop/STAT6306_McGee/Project/FinalProject/countryData3.kml")
+```
+
+## Compare two different ways to add the placemarks
+# Create the Placemarks using strings
+
+```{r}
+addPlacemarks.fast = 
+function(lon, lat, parent)
+{
+ txt = sprintf("<Placemark><Point><coordinates>%.3f,%.3f,0
+                </coordinates></Point></Placemark>",
+               lon, lat)
+ parseXMLAndAdd( paste(txt, collapse = ""),parent)
+}
+```
+
+# Create the Placemarks using XMLNodes
+
+```{r}
+makePM = function(x, y, parent){
+   newXMLNode("Placemark",
+              newXMLNode("Point",
+                          newXMLNode("coordinates",
+                                     paste(x, y, 0, sep=","))),
+                          parent = parent)
+}
+addPlacemarks.slow = 
+function(lon, lat, parent)
+{
+ mapply(makePM, x = lon, y = lat, parent =parent)
+}
+```
+
+# Set up the document and the inputs to the functions
+
+```{r}
+doc = newXMLDoc()
+root = newXMLNode("kml", doc = doc)
+folder = newXMLNode("Folder", parent = root)
+lons = rep(allCtryData$longitude, 10)
+lats = rep(allCtryData$latitude, 10)
+```
+
+# Time the XMLNodes method of creating the Placemarks
+
+```{r}
+system.time(invisible(
+                    addPlacemarks.slow(lons, lats, folder)))
+```
+
+# Time the strings method of creating the Placemarks
+
+```{r}
+rm(doc)
+doc = newXMLDoc()
+root = newXMLNode("kml", doc = doc)
+folder = newXMLNode("Folder", parent = root)
+system.time(invisible(
+            addPlacemarks.fast(lons, lats, folder)))
+```
+
+## The strings method is much faster than the XMLNodes method
